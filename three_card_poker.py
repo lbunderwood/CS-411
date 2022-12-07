@@ -89,8 +89,8 @@ def classify_hand(cards):
     return Hand.HC
 
 
-# calculates the frequencies for a given hold
-def hold_freq(cards, hold, deck):
+# calculates the frequencies for a given hold using combinations
+def hold_freq_comb(cards, hold, deck):
     freq = {}
     for hand in Hand:
         freq[hand] = 0
@@ -135,29 +135,27 @@ def hold_freq(cards, hold, deck):
 # calculates the stats for a given hold (hold contains indices of cards to hold)
 def hold_return(cards, hold, deck):
     tot_ret = 0
-    probs = {}
-    rets = {}
 
-    freq, combs = hold_freq(cards, hold, deck)
+    freq, total = hold_freq_comb(cards, hold, deck)
     for k, v in freq.items():
-        probs[k] = v / combs
-        rets[k] = probs[k] * get_value(k)
-        tot_ret += rets[k]
+        prob = v / total
+        ret = prob * get_value(k)
+        tot_ret += ret
 
-    return freq, probs, rets, tot_ret
+    return freq, tot_ret
 
 
-# calculates the stats for the optimal hold for a given hand
+# calculates the stats for the optimal hold for a given hand (called from combination_frequencies)
 def best_hold(cards, deck):
     hold = []
     max_ret = -1
     temp_deck = deck.copy()
 
-    print(cards)
-
     # remove cards from deck, as they cannot be drawn again
     for card in cards:
-        temp_deck.remove(card)
+        for d_card in temp_deck:
+            if d_card.val == card.val and d_card.suit == card.suit:
+                temp_deck.remove(d_card)
 
     for i in range(8):
         if i & 1:
@@ -166,41 +164,14 @@ def best_hold(cards, deck):
             hold.append(1)
         if i & 4:
             hold.append(2)
-        freq, probs, rets, ret = hold_return(cards, hold, temp_deck)
+        freq, ret = hold_return(cards, hold, temp_deck)
         if ret > max_ret:
             best_hold = hold.copy()
             best_freq = freq.copy()
-            best_prob = probs.copy()
-            best_rets = rets.copy()
             max_ret = ret
         hold.clear()
 
-    return best_hold, best_freq, best_prob, best_rets
-
-# uses permutation method to get frequencies and total combinations
-def permutation_frequencies(deck, draw=True):
-    freq = {}
-    for hand in Hand:
-        freq[hand] = 0
-
-    # calculate frequencies
-    perms = 0
-    for card1 in deck:
-        for card2 in deck:
-            if card1 == card2: continue
-            for card3 in deck:
-                if card1 == card3 or card2 == card3: continue
-                if draw:
-                    hold, hold_freq, hold_prob, hold_rets = best_hold([card1, card2, card3], deck)
-                    for k, v in hold_freq.items():
-                        freq[k] += v
-                        perms += v
-                else:
-                    freq[classify_hand([card1, card2, card3])] += 1
-                    perms += 1
-
-    return freq, perms
-
+    return best_hold, best_freq
 
 
 # uses combination method to get frequencies and total combinations
@@ -222,7 +193,7 @@ def combination_frequencies(draw=True):
             # iterate over cards between j and 52
             for k in range(j + 1, len(deck)):
                 if draw:
-                    hold, hold_freq, hold_prob, hold_rets = best_hold([deck[i], deck[j], deck[k]], deck)
+                    hold, hold_freq = best_hold([deck[i], deck[j], deck[k]], deck)
                     for k, v in hold_freq.items():
                         freq[k] += v
                         combs += v
@@ -235,19 +206,49 @@ def combination_frequencies(draw=True):
 
 # returns total return
 def total_return():
-    #perm_freq, perms = permutation_frequencies(deck)
     comb_freq, combs = combination_frequencies()
 
     prob = {}
     ret = {}
     tot_ret = 0
 
-    for k, v in freq.items():
+    for k, v in comb_freq.items():
         prob[k] = v / combs
         ret[k] = prob[k] * get_value(k)
-        tot_ret += rets[k]
+        tot_ret += ret[k]
 
-    return perm_freq, comb_freq, prob, ret, tot_ret
+    return comb_freq, prob, ret, tot_ret
+
+
+# finds all of the holds for a given hand and their stats (called from main only)
+def holds(cards):
+    hold = []
+    all_holds = []
+    returns = []
+    deck = []
+    for i in range(1, 14):
+        for suit in Suit:
+            deck.append(Card(i, suit))
+
+    # remove cards from deck, as they cannot be drawn again
+    for card in cards:
+        for d_card in deck:
+            if d_card.val == card.val and d_card.suit == card.suit:
+                deck.remove(d_card)
+
+    for i in range(8):
+        if i & 1:
+            hold.append(0)
+        if i & 2:
+            hold.append(1)
+        if i & 4:
+            hold.append(2)
+        freq, ret = hold_return(cards, hold, deck)
+        all_holds.append(hold.copy())
+        returns.append(ret)
+        hold.clear()
+
+    return all_holds, returns
 
 
 # Print a dict in a nice way
@@ -260,9 +261,7 @@ def printdict(dict):
 
 def main():
 
-    perm_freq, comb_freq, prob, ret, tot_ret = total_return()
-    print("\nPermutation Frequencies:")
-    printdict(perm_freq)
+    comb_freq, prob, ret, tot_ret = total_return()
     print("Combination Frequencies:")
     printdict(comb_freq)
     print("Probabilities:")
@@ -271,19 +270,42 @@ def main():
     printdict(ret)
     print("Total Return: ", tot_ret, "\n")
 
-    # deck = []
-    # for i in range(1, 14):
-    #     for suit in Suit:
-    #         deck.append(Card(i, suit))
+    # list of 10 interesting hands to test hold algorithms
+    hands = [[Card(12, Suit.HEART), Card(13, Suit.HEART), Card(1, Suit.HEART)], # RF
+            [Card(3, Suit.CLUB), Card(4, Suit.CLUB), Card(5, Suit.CLUB)],       # SF
+            [Card(1, Suit.SPADE), Card(1, Suit.HEART), Card(1, Suit.DIAMOND)],  # TA
+            [Card(6, Suit.SPADE), Card(6, Suit.HEART), Card(6, Suit.CLUB)],     # TK
+            [Card(9, Suit.HEART), Card(10, Suit.CLUB), Card(11, Suit.SPADE)],   # ST
+            [Card(5, Suit.HEART), Card(8, Suit.HEART), Card(1, Suit.HEART)],    # FL
+            [Card(13, Suit.HEART), Card(13, Suit.CLUB), Card(2, Suit.HEART)],   # PR
+            [Card(3, Suit.HEART), Card(7, Suit.DIAMOND), Card(12, Suit.CLUB)],  # HC
+            [Card(2, Suit.HEART), Card(3, Suit.HEART), Card(7, Suit.SPADE)],    # HC - close to SF/FL/ST
+            [Card(1, Suit.SPADE), Card(1, Suit.HEART), Card(13, Suit.HEART)],   # PR - example from class
+            [Card(5, Suit.HEART), Card(6, Suit.HEART), Card(1, Suit.HEART)],    # FL - close to SF/ST
+            ]
+    deck = []
+    for i in range(1, 14):
+        for suit in Suit:
+            deck.append(Card(i, suit))
 
-    # cards = deck[12:24:4]
-    # h = best_hold(cards, deck)
-    # print("Hand: ")
-    # for c in cards:
-    #     print(c)
-    # print("Hold: ", h)
-    
+    for hand in hands:
+        print("\nHand: ", hand)
+        print("--------------------------------")
 
+        # print all holds and their returns
+        hold_arr, returns = holds(hand)
+        for i in range(len(hold_arr)):
+            print(hold_arr[i], " : expected return = ", returns[i])
+
+        # find optimal play and compare against algorithm, then print it
+        max_ind = returns.index(max(returns))
+        if hold_arr[max_ind] != best_hold(hand, deck)[0]:
+            print(hold_arr[max_ind], best_hold(hand, deck)[0])
+            raise
+        print("Best hold: ", hold_arr[max_ind], ", E[x] = ", returns[max_ind])
+        print("--------------------------------\n")
+
+    return 0
 
 if __name__ == "__main__":
     sys.exit(main())
